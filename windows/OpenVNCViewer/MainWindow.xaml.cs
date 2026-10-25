@@ -16,6 +16,7 @@ public partial class MainWindow : Window
     long generation=-1, frames, lastFrames;
     readonly Stopwatch clock=Stopwatch.StartNew();
     double lastPaint,lastStats,lastClipboard;
+    long lastBytes;
     string clipboardEcho="";
     int buttons;
     Point? pendingPointer;
@@ -33,7 +34,7 @@ public partial class MainWindow : Window
         var current=new RfbClient();var cts=new CancellationTokenSource();client=current;cancel=cts;
         input=Channel.CreateBounded<Action<RfbClient>>(new BoundedChannelOptions(256){SingleReader=true,FullMode=BoundedChannelFullMode.Wait});
         var queue=input;ConnectButton.IsEnabled=false;Status.Text="正在连接并认证…";
-        string host=Host.Text.Trim(),user=User.Text,password=Password.Password; bool raw=RawMode.IsChecked==true;
+        string host=Host.Text.Trim(),user=User.Text,password=Password.Password; bool raw=false;
         current.ClipboardReceived+=text=>Dispatcher.BeginInvoke(new Action(()=>
         {
             if(client!=current||ShareClipboard.IsChecked!=true)return;
@@ -56,7 +57,7 @@ public partial class MainWindow : Window
     void Stop()
     {
         cancel?.Cancel();input?.Writer.TryComplete();client?.Dispose();client=null;cancel=null;input=null;
-        pressed.Clear();buttons=0;pendingPointer=null;bitmap=null;Desktop.Source=null;generation=-1;frames=0;lastFrames=0;
+        pressed.Clear();buttons=0;pendingPointer=null;bitmap=null;Desktop.Source=null;generation=-1;frames=0;lastFrames=0;lastBytes=0;lastStats=clock.Elapsed.TotalSeconds;
         if(!closing)ConnectButton.IsEnabled=true;
     }
     void Disconnect(object sender,RoutedEventArgs e){Stop();Status.Text="已断开连接";}
@@ -69,7 +70,7 @@ public partial class MainWindow : Window
     {
         var current=client;if(current?.Ready!=true)return;
         double now=clock.Elapsed.TotalSeconds;
-        if(now-lastPaint<1.0/120)return;lastPaint=now;
+        if(now-lastPaint<1.0/60)return;lastPaint=now;
         if(pendingPointer is Point point){pendingPointer=null;int mask=buttons;Enqueue(c=>c.Pointer((int)point.X,(int)point.Y,mask));}
         if(Monitor.TryEnter(current.Gate))
         {
@@ -79,14 +80,18 @@ public partial class MainWindow : Window
                 {
                     if(bitmap==null||bitmap.PixelWidth!=current.Width||bitmap.PixelHeight!=current.Height)
                     {bitmap=new WriteableBitmap(current.Width,current.Height,96,96,PixelFormats.Bgr32,null);Desktop.Source=bitmap;}
-                    bitmap.WritePixels(new Int32Rect(0,0,current.Width,current.Height),current.Pixels,current.Width*4,0);
+                    if(current.Dirty is {} dirty)
+                    {
+                        bitmap.WritePixels(new Int32Rect(dirty.X,dirty.Y,dirty.W,dirty.H),current.Pixels,current.Width*4,(dirty.Y*current.Width+dirty.X)*4);
+                        current.Dirty=null;
+                    }
                     generation=current.Generation;frames++;
                 }
             }
             finally{Monitor.Exit(current.Gate);}
         }
         if(now-lastStats>=1)
-        {Status.Text=$"已连接 · {current.Width} × {current.Height} · 实际绘制 {(frames-lastFrames)/(now-lastStats):F0} 帧/秒 · F11 全屏";lastFrames=frames;lastStats=now;}
+        {Status.Text=$"已连接 · {current.Width} × {current.Height} · 接收 {(current.ReceivedBytes-lastBytes)/(now-lastStats)/1048576:F1} MB/s · 实际绘制 {(frames-lastFrames)/(now-lastStats):F0} 帧/秒 · F11 全屏";lastFrames=frames;lastBytes=current.ReceivedBytes;lastStats=now;}
         if(now-lastClipboard>.5)
         {
             lastClipboard=now;

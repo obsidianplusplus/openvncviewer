@@ -7,7 +7,6 @@
    <TextBlock Text="密码 " VerticalAlignment="Center"/><PasswordBox x:Name="Password" Width="110" Margin="0,0,10,0"/>
    <Button x:Name="ConnectButton" Content="连接" Click="Connect" Padding="14,5" Margin="0,0,6,0"/>
    <Button Content="断开" Click="Disconnect" Padding="14,5" Margin="0,0,10,0"/>
-   <CheckBox x:Name="RawMode" Content="局域网低延迟" VerticalAlignment="Center" ToolTip="优先无压缩，减少解码耗时，但增加带宽；重连生效" Margin="0,0,10,0"/>
    <CheckBox x:Name="ShareClipboard" Content="共享剪贴板" VerticalAlignment="Center" Margin="0,0,10,0"/>
    <CheckBox x:Name="MacKeys" Content="Alt 映射为 Command" IsChecked="True" VerticalAlignment="Center"/>
   </WrapPanel>

@@ -22,6 +22,13 @@ public sealed class RfbClient : IDisposable
     public byte[] Pixels { get; private set; } = [];
     public long Generation { get; private set; }
     public long Updates { get; private set; }
+    public long ReceivedBytes;
+    public (int X,int Y,int W,int H)? Dirty;
+    void Mark(int x,int y,int w,int h)
+    {
+        if(Dirty is var d && d.HasValue){var a=d.Value;int right=Math.Max(a.X+a.W,x+w),bottom=Math.Max(a.Y+a.H,y+h);x=Math.Min(a.X,x);y=Math.Min(a.Y,y);w=right-x;h=bottom-y;}
+        Dirty=(x,y,w,h); Generation++;
+    }
     public bool Ready { get; private set; }
     public event Action<string>? ClipboardReceived;
     readonly Inflater zrle = new();
@@ -36,7 +43,7 @@ public sealed class RfbClient : IDisposable
     byte[] Read(int count)
     {
         if (count < 0 || count > 64 * 1024 * 1024) throw new IOException("服务器数据超出限制");
-        byte[] data = new byte[count]; stream.ReadExactly(data); return data;
+        byte[] data = new byte[count]; stream.ReadExactly(data); Interlocked.Add(ref ReceivedBytes,count); return data;
     }
     int Byte() => Read(1)[0];
     int U16() => BinaryPrimitives.ReadUInt16BigEndian(Read(2));
@@ -119,7 +126,7 @@ public sealed class RfbClient : IDisposable
     void Resize(int w,int h)
     {
         if(w<=0 || h<=0 || w>16384 || h>16384 || (long)w*h>33554432) throw new IOException("远端分辨率超出限制");
-        Width=w;Height=h;Pixels=new byte[checked(w*h*4)];
+        Dirty=null;Width=w;Height=h;Pixels=new byte[checked(w*h*4)];
     }
     void Rect(int x,int y,int w,int h)
     { if(w<=0||h<=0||x<0||y<0||x+w>Width||y+h>Height) throw new IOException("无效的画面区域"); }
@@ -130,32 +137,36 @@ public sealed class RfbClient : IDisposable
             int type=Byte();
             if(type==0)
             {
+                var updateClock=System.Diagnostics.Stopwatch.StartNew();
                 Byte(); int count=U16();
                 // Lock per rectangle; the UI never blocks on an entire update's network read.
                 for(int i=0;i<count;i++)
                 {
                     int x=U16(),y=U16(),w=U16(),h=U16(),encoding=I32();
-                    if(encoding==-223){lock(Gate){Resize(w,h);Generation++;}continue;}
+                    if(encoding==-223){lock(Gate){Resize(w,h);Mark(0,0,w,h);}continue;}
                     Rect(x,y,w,h);
                     if(encoding==0)
                     {
                         byte[] data=Read(checked(w*h*4));
-                        lock(Gate){for(int row=0;row<h;row++) Buffer.BlockCopy(data,row*w*4,Pixels,((y+row)*Width+x)*4,w*4);Generation++;}
+                        lock(Gate){for(int row=0;row<h;row++) Buffer.BlockCopy(data,row*w*4,Pixels,((y+row)*Width+x)*4,w*4);Mark(x,y,w,h);}
                     }
                     else if(encoding==1)
                     {
                         int sx=U16(),sy=U16();Rect(sx,sy,w,h);
-                        lock(Gate){for(int row=0;row<h;row++){int r=y>sy?h-1-row:row;Buffer.BlockCopy(Pixels,((sy+r)*Width+sx)*4,Pixels,((y+r)*Width+x)*4,w*4);}Generation++;}
+                        lock(Gate){for(int row=0;row<h;row++){int r=y>sy?h-1-row:row;Buffer.BlockCopy(Pixels,((sy+r)*Width+sx)*4,Pixels,((y+r)*Width+x)*4,w*4);}Mark(x,y,w,h);}
                     }
                     else if(encoding==16)
                     {
                         int size=I32();byte[] compressed=Read(size);
                         byte[] decoded=DecodeZrle(compressed,w,h);
-                        lock(Gate){for(int row=0;row<h;row++)Buffer.BlockCopy(decoded,row*w*4,Pixels,((y+row)*Width+x)*4,w*4);Generation++;}
+                        lock(Gate){for(int row=0;row<h;row++)Buffer.BlockCopy(decoded,row*w*4,Pixels,((y+row)*Width+x)*4,w*4);Mark(x,y,w,h);}
                     }
                     else throw new IOException($"不支持的画面编码：{encoding}");
                 }
-                Updates++; Request(true);
+                Updates++;
+                int delay=33-(int)updateClock.ElapsedMilliseconds;
+                if(delay>0 && token.WaitHandle.WaitOne(delay))return;
+                Request(true);
             }
             else if(type==1){Read(3);Read(checked(U16()*6));}
             else if(type==2) { }
