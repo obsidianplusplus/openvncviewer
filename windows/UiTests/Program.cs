@@ -49,8 +49,23 @@ internal static class Program
             save.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Check(store.Load().Profiles.Count == 1 && store.Load().Profiles[0].PasswordToken.Length > 0, "save profile button failed");
             Check(!File.ReadAllText(store.Path).Contains("temporary-test-password"), "UI saved plaintext password");
+            var list = (ListBox)main.FindName("ProfileList");
+            list.SelectedItem = null; list.SelectedIndex = 0;
+            ((TextBox)main.FindName("Host")).Text = "192.0.2.11";
+            Check(((PasswordBox)main.FindName("Password")).Password.Length == 0, "saved credential followed a changed host");
+            ((TextBox)main.FindName("Host")).Text = "192.0.2.10";
+            list.SelectedItem = null; list.SelectedIndex = 0;
             ((CheckBox)main.FindName("SavePassword")).IsChecked = false;
             Check(store.Load().Profiles[0].PasswordToken.Length == 0, "unchecking password did not revoke credential");
+            app.Dispatcher.BeginInvoke(new Action(() =>
+            {
+                var active = app.Windows.OfType<SettingsWindow>().Single();
+                ((Slider)active.FindName("Fps")).Value = 60;
+                ((Button)active.FindName("ApplyButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            }), DispatcherPriority.ApplicationIdle);
+            ((Button)main.FindName("SettingsButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            list.SelectedItem = null; list.SelectedIndex = 0;
+            Check(store.Load().Profiles[0].Options.MaxFps == 60 && ((TextBlock)main.FindName("ProfileSummary")).Text.Contains("60 FPS"), "profile switching reverted saved settings");
             main.Close();
             var restored = new MainWindow(store); restored.Show(); restored.UpdateLayout();
             Check(((TextBox)restored.FindName("Host")).Text == "192.0.2.10", "selected connection not restored");

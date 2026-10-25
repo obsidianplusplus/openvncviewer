@@ -141,7 +141,7 @@ public partial class MainWindow : Window
         if (loading || editingProfileId == null) return;
         int i = state.Profiles.FindIndex(p => p.Id == editingProfileId);
         if (i >= 0 && state.Profiles[i].PasswordToken.Length > 0)
-        { state.Profiles[i] = state.Profiles[i] with { PasswordToken = "" }; if (Persist()) Notice.Text = "已删除此连接保存的密码。"; }
+        { state.Profiles[i] = state.Profiles[i] with { PasswordToken = "" }; RefreshProfiles(editingProfileId); if (Persist()) Notice.Text = "已删除此连接保存的密码。"; }
     }
     void DeleteProfile(object s, RoutedEventArgs e)
     {
@@ -161,7 +161,7 @@ public partial class MainWindow : Window
         if (editingProfileId != null)
         {
             int i = state.Profiles.FindIndex(p => p.Id == editingProfileId);
-            if (i >= 0) state.Profiles[i] = state.Profiles[i] with { Options = options };
+            if (i >= 0) { state.Profiles[i] = state.Profiles[i] with { Options = options }; RefreshProfiles(editingProfileId); }
         }
         clipboardEcho = ""; ApplyVisualOptions(); UpdateProfileSummary();
         if (Persist()) Notice.Text = sessionRunning ? "设置已保存。编码、色深、连接超时和共享会话需重新连接后生效。" : "设置已保存。";

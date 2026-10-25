@@ -10,6 +10,7 @@ public sealed class TextInputWindow : Window
     public int DelayMilliseconds => (int)delay.Value;
     public TextInputWindow()
     {
+        Background = System.Windows.Media.Brushes.White; Foreground = System.Windows.Media.Brushes.Black;
         Title = "发送文本"; Width = 620; Height = 430; MinWidth = 600; MinHeight = 340;
         WindowStartupLocation = WindowStartupLocation.CenterOwner; ShowInTaskbar = false;
         var panel = new DockPanel { Margin = new(18) }; Content = panel;

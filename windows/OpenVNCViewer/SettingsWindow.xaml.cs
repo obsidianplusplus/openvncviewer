@@ -50,6 +50,10 @@ public partial class SettingsWindow : Window
         EncodingChoice.SelectedIndex = 0; ColorChoice.SelectedIndex = mode == "economy" ? 1 : 0;
         CopyRect.IsChecked = true; Smooth.IsChecked = false;
     }
+    void EncodingChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (RawWarning != null) RawWarning.Visibility = EncodingChoice.SelectedIndex == 1 ? Visibility.Visible : Visibility.Collapsed;
+    }
     void ScaleChanged(object sender, SelectionChangedEventArgs e)
     {
         if (CustomScaleRow != null) CustomScaleRow.IsEnabled = ScaleChoice.SelectedIndex == 2;
