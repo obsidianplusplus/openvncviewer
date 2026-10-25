@@ -11,11 +11,22 @@ namespace OpenVNCViewer;
 
 // One decoder thread owns protocol state. A single framebuffer is protected by Gate;
 // the UI consumes only the latest completed update, with no queued frame copies.
+public sealed class RfbAuthenticationException(string message) : IOException(message) { }
+
 public sealed class RfbClient : IDisposable
 {
     readonly TcpClient tcp = new() { NoDelay = true };
     NetworkStream stream = null!;
     readonly object sendGate = new();
+    volatile ViewerOptions options = new();
+    bool sixteenBit;
+    int forceRefresh;
+    public string ActiveEncoding { get; private set; } = "等待画面";
+    public int ActiveColorBits => sixteenBit ? 16 : 24;
+    public bool WasConnected { get; private set; }
+    public event Action? BellReceived;
+    public void ApplyLiveOptions(ViewerOptions value) => options = value.Normalize();
+    public void Refresh() => Interlocked.Exchange(ref forceRefresh, 1);
     public readonly object Gate = new();
     public int Width { get; private set; }
     public int Height { get; private set; }
@@ -33,12 +44,31 @@ public sealed class RfbClient : IDisposable
     public event Action<string>? ClipboardReceived;
     readonly Inflater zrle = new();
     bool disposed;
-    public async Task ConnectAsync(string host, int port, string user, string password, bool raw, CancellationToken token)
+    public Task ConnectAsync(string host, int port, string user, string password, bool raw, CancellationToken token)
+        => ConnectAsync(host, port, user, password, new ViewerOptions { Encoding = raw ? FrameEncoding.Raw : FrameEncoding.Zrle }, token);
+    public async Task ConnectAsync(string host, int port, string user, string password, ViewerOptions settings, CancellationToken token)
     {
-        await tcp.ConnectAsync(host, port, token);
-        stream = tcp.GetStream();
-        stream.ReadTimeout = 30000; stream.WriteTimeout = 15000;
-        await Task.Run(() => Handshake(user, password, raw), token);
+        options = settings.Normalize(); sixteenBit = options.ColorDepth == ColorDepth.Rgb565;
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
+        deadline.CancelAfter(TimeSpan.FromSeconds(options.ConnectTimeoutSeconds));
+        using var registration = deadline.Token.Register(Dispose);
+        try
+        {
+            await tcp.ConnectAsync(host, port, deadline.Token);
+            tcp.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, options.KeepAlive);
+            if (options.KeepAlive)
+            {
+                tcp.Client.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveTime, 5);
+                tcp.Client.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveInterval, 1);
+            }
+            stream = tcp.GetStream(); stream.ReadTimeout = options.ConnectTimeoutSeconds * 1000; stream.WriteTimeout = 15000;
+            await Task.Run(() => Handshake(user, password), deadline.Token);
+        }
+        catch (Exception ex) when (deadline.IsCancellationRequested)
+        {
+            token.ThrowIfCancellationRequested();
+            throw new TimeoutException("连接或认证超时，请检查服务器地址或调整连接超时", ex);
+        }
     }
     byte[] Read(int count)
     {
@@ -56,7 +86,7 @@ public sealed class RfbClient : IDisposable
         int n = I32(); if (n < 0 || n > max) throw new IOException("服务器文本超出限制");
         return Encoding.UTF8.GetString(Read(n));
     }
-    void Handshake(string user, string password, bool raw)
+    void Handshake(string user, string password)
     {
         string version = Encoding.ASCII.GetString(Read(12));
         if (!version.StartsWith("RFB ") || !int.TryParse(version.AsSpan(8,3), out int minor)) throw new IOException("不是 VNC 服务器");
@@ -64,10 +94,10 @@ public sealed class RfbClient : IDisposable
         Send(Encoding.ASCII.GetBytes($"RFB 003.00{proto}\n"));
         int[] offered;
         if (proto == 3) offered = [I32()];
-        else { int count = Byte(); if (count == 0) throw new IOException(Text(8192)); offered = Read(count).Select(b => (int)b).ToArray(); }
+        else { int count = Byte(); if (count == 0) throw new RfbAuthenticationException(Text(8192)); offered = Read(count).Select(b => (int)b).ToArray(); }
         int security = user.Length > 0 ? (offered.Contains(30) ? 30 : -1)
             : offered.Contains(2) && password.Length > 0 ? 2 : offered.Contains(1) ? 1 : offered.Contains(2) ? 2 : -1;
-        if (security < 0) throw new IOException("认证方式不支持：Mac 请填写系统账号，普通 VNC 请留空账号");
+        if (security < 0) throw new RfbAuthenticationException("认证方式不支持：Mac 请填写系统账号，普通 VNC 请留空账号");
         if (proto != 3) Send([(byte)security]);
         if (security == 2)
         {
@@ -78,14 +108,20 @@ public sealed class RfbClient : IDisposable
             CryptographicOperations.ZeroMemory(key); CryptographicOperations.ZeroMemory(pw);
         }
         if (security == 30) AuthenticateMac(user, password);
-        if (proto == 8 || security != 1) if (I32()!=0) throw new IOException(proto==8 ? Text(8192) : "账号或密码错误");
-        Send([1]); int w=U16(), h=U16(); Read(16); Text(65536); Resize(w,h);
+        if (proto == 8 || security != 1) if (I32()!=0) throw new RfbAuthenticationException(proto==8 ? Text(8192) : "账号或密码错误");
+        Send([(byte)(options.SharedSession ? 1 : 0)]); int w=U16(), h=U16(); Read(16); Text(65536); Resize(w,h);
         // 32bpp little endian true colour, BGRX. ZRLE uses compact BGR pixels.
-        Send([0,0,0,0,32,24,0,1,0,255,0,255,0,255,16,8,0,0,0,0]);
-        int[] enc = raw ? [0,1,16,-223] : [16,1,0,-223];
+        Send(sixteenBit ? [0,0,0,0,16,16,0,1,0,31,0,63,0,31,11,5,0,0,0,0]
+            : [0,0,0,0,32,24,0,1,0,255,0,255,0,255,16,8,0,0,0,0]);
+        var encodings = new List<int>();
+        bool raw = options.Encoding == FrameEncoding.Raw;
+        encodings.Add(raw ? 0 : 16);
+        if (options.UseCopyRect) encodings.Add(1);
+        encodings.Add(raw ? 16 : 0); encodings.Add(-223);
+        int[] enc = encodings.ToArray();
         byte[] msg = new byte[4+4*enc.Length]; msg[0]=2; Put16(msg.AsSpan(2),enc.Length);
         for(int i=0;i<enc.Length;i++) Put32(msg.AsSpan(4+i*4),enc[i]);
-        Send(msg); stream.ReadTimeout=Timeout.Infinite; Ready=true; Request(false);
+        Send(msg); stream.ReadTimeout=Timeout.Infinite; Ready=true; WasConnected=true; Request(false);
     }
     static BigInteger Big(byte[] b) => new(b, isUnsigned:true, isBigEndian:true);
     static byte[] Fixed(BigInteger n, int length)
@@ -147,16 +183,29 @@ public sealed class RfbClient : IDisposable
                     Rect(x,y,w,h);
                     if(encoding==0)
                     {
-                        byte[] data=Read(checked(w*h*4));
+                        ActiveEncoding = "Raw";
+                        byte[] data=Read(checked(w*h*(sixteenBit ? 2 : 4)));
+                        if (sixteenBit)
+                        {
+                            byte[] expanded = new byte[w*h*4];
+                            for (int pixel=0;pixel<w*h;pixel++)
+                            {
+                                int c = Expand565(BinaryPrimitives.ReadUInt16LittleEndian(data.AsSpan(pixel*2)));
+                                expanded[pixel*4]=(byte)c; expanded[pixel*4+1]=(byte)(c>>8); expanded[pixel*4+2]=(byte)(c>>16);
+                            }
+                            data = expanded;
+                        }
                         lock(Gate){for(int row=0;row<h;row++) Buffer.BlockCopy(data,row*w*4,Pixels,((y+row)*Width+x)*4,w*4);Mark(x,y,w,h);}
                     }
                     else if(encoding==1)
                     {
+                        ActiveEncoding = "CopyRect";
                         int sx=U16(),sy=U16();Rect(sx,sy,w,h);
                         lock(Gate){for(int row=0;row<h;row++){int r=y>sy?h-1-row:row;Buffer.BlockCopy(Pixels,((sy+r)*Width+sx)*4,Pixels,((y+r)*Width+x)*4,w*4);}Mark(x,y,w,h);}
                     }
                     else if(encoding==16)
                     {
+                        ActiveEncoding = "ZRLE";
                         int size=I32();byte[] compressed=Read(size);
                         byte[] decoded=DecodeZrle(compressed,w,h);
                         lock(Gate){for(int row=0;row<h;row++)Buffer.BlockCopy(decoded,row*w*4,Pixels,((y+row)*Width+x)*4,w*4);Mark(x,y,w,h);}
@@ -164,12 +213,12 @@ public sealed class RfbClient : IDisposable
                     else throw new IOException($"不支持的画面编码：{encoding}");
                 }
                 Updates++;
-                int delay=33-(int)updateClock.ElapsedMilliseconds;
+                int delay=(int)Math.Ceiling(1000.0/options.MaxFps)-(int)updateClock.ElapsedMilliseconds;
                 if(delay>0 && token.WaitHandle.WaitOne(delay))return;
-                Request(true);
+                Request(Interlocked.Exchange(ref forceRefresh, 0) == 0);
             }
             else if(type==1){Read(3);Read(checked(U16()*6));}
-            else if(type==2) { }
+            else if(type==2) { BellReceived?.Invoke(); }
             else if(type==3){Read(3);string text=Text(1024*1024);ClipboardReceived?.Invoke(text);}
             else throw new IOException($"不支持的服务器消息：{type}");
         }
@@ -180,7 +229,7 @@ public sealed class RfbClient : IDisposable
         // Incremental inflater is retained across rectangles, as required by RFB.
         byte[] scratch=new byte[8192]; int cursor=0, available=0;
         int Next(){if(cursor==available){available=zrle.Inflate(scratch);cursor=0;if(available==0)throw new IOException("ZRLE 数据不完整");}return scratch[cursor++];}
-        int Color()=>Next()|(Next()<<8)|(Next()<<16);
+        int Color()=>sixteenBit ? Expand565(Next()|(Next()<<8)) : Next()|(Next()<<8)|(Next()<<16);
         byte[] output=new byte[w*h*4];
         for(int ty=0;ty<h;ty+=64)for(int tx=0;tx<w;tx+=64)
         {
@@ -207,9 +256,16 @@ public sealed class RfbClient : IDisposable
         byte[] extra=new byte[1];if(cursor!=available || zrle.Inflate(extra)!=0 || !zrle.IsNeedingInput)throw new IOException("ZRLE 多余数据");
         return output;
     }
+    static int Expand565(int value)
+    {
+        int red=(value>>11)&31, green=(value>>5)&63, blue=value&31;
+        return ((red*255/31)<<16)|((green*255/63)<<8)|(blue*255/31);
+    }
     void Request(bool incremental){byte[] m=new byte[10];m[0]=3;m[1]=(byte)(incremental?1:0);Put16(m.AsSpan(6),Width);Put16(m.AsSpan(8),Height);Send(m);}
-    public void Key(int key,bool down){if(!Ready)return;byte[] m=new byte[8];m[0]=4;m[1]=(byte)(down?1:0);Put32(m.AsSpan(4),key);Send(m);}
-    public void Pointer(int x,int y,int buttons){if(!Ready)return;byte[] m=new byte[6];m[0]=5;m[1]=(byte)buttons;Put16(m.AsSpan(2),Math.Clamp(x,0,Width-1));Put16(m.AsSpan(4),Math.Clamp(y,0,Height-1));Send(m);}
-    public void Clipboard(string text){if(!Ready)return;byte[] b=Encoding.UTF8.GetBytes(text);if(b.Length>1024*1024)return;byte[] m=new byte[8+b.Length];m[0]=6;Put32(m.AsSpan(4),b.Length);b.CopyTo(m,8);Send(m);}
+    public void Key(int key,bool down){if(!Ready || (options.ViewOnly && down))return;byte[] m=new byte[8];m[0]=4;m[1]=(byte)(down?1:0);Put32(m.AsSpan(4),key);Send(m);}
+    public void Pointer(int x,int y,int buttons){if(!Ready || options.ViewOnly)return;SendPointerPacket(x,y,buttons);}
+    public void ReleasePointer(int x,int y){if(Ready)SendPointerPacket(x,y,0);}
+    void SendPointerPacket(int x,int y,int buttons){byte[] m=new byte[6];m[0]=5;m[1]=(byte)buttons;Put16(m.AsSpan(2),Math.Clamp(x,0,Width-1));Put16(m.AsSpan(4),Math.Clamp(y,0,Height-1));Send(m);}
+    public void Clipboard(string text){if(!Ready || !options.CanSendClipboard)return;byte[] b=Encoding.UTF8.GetBytes(text);if(b.Length>1024*1024)return;byte[] m=new byte[8+b.Length];m[0]=6;Put32(m.AsSpan(4),b.Length);b.CopyTo(m,8);Send(m);}
     public void Dispose(){Ready=false;disposed=true;tcp.Dispose();}
 }

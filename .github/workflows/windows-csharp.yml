@@ -14,11 +14,13 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      - uses: actions/setup-dotnet@v5
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
         with:
           dotnet-version: '10.0.x'
       - name: 协议回归测试
         run: dotnet run --project windows/ProtocolTests -c Release
+      - name: 中文界面与设置保存测试
+        run: dotnet run --project windows/UiTests -c Release
       - name: 编译独立运行的 Windows x64 程序
         run: dotnet publish windows/OpenVNCViewer -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -o artifacts
       - name: 计算校验值
@@ -33,4 +35,11 @@ jobs:
             artifacts/OpenVNCViewer.exe
             artifacts/SHA256SUMS.txt
           if-no-files-found: error
+          retention-days: 14
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: OpenVNCViewer-UI-Preview
+          path: artifacts/qa/*.png
+          if-no-files-found: ignore
           retention-days: 14

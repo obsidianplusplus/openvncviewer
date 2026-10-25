@@ -1,0 +1,90 @@
+<Window x:Class="OpenVNCViewer.SettingsWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="连接设置" Width="740" Height="730" MinWidth="680" MinHeight="580" WindowStartupLocation="CenterOwner" ShowInTaskbar="False">
+ <Window.Resources>
+  <Style TargetType="CheckBox"><Setter Property="Margin" Value="0,8"/><Setter Property="VerticalAlignment" Value="Center"/></Style>
+  <Style TargetType="ComboBox"><Setter Property="MinWidth" Value="210"/><Setter Property="Margin" Value="0,5"/></Style>
+  <Style TargetType="TextBlock" x:Key="Hint"><Setter Property="TextWrapping" Value="Wrap"/><Setter Property="Opacity" Value="0.7"/><Setter Property="Margin" Value="0,4,0,12"/></Style>
+  <Style TargetType="TextBlock" x:Key="Heading"><Setter Property="FontSize" Value="18"/><Setter Property="FontWeight" Value="SemiBold"/><Setter Property="Margin" Value="0,10,0,10"/></Style>
+ </Window.Resources>
+ <DockPanel Margin="18">
+  <StackPanel DockPanel.Dock="Top">
+   <TextBlock Text="连接设置" FontSize="26" FontWeight="SemiBold"/>
+   <TextBlock Text="画面、输入和帧率立即生效；编码、色深、连接超时与共享会话在下次连接时生效。" Style="{StaticResource Hint}"/>
+  </StackPanel>
+  <Grid DockPanel.Dock="Bottom" Margin="0,14,0,0">
+   <Button Content="恢复默认" HorizontalAlignment="Left" Click="Reset" Padding="14,6"/>
+   <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+    <Button Content="取消" IsCancel="True" Padding="20,6" Margin="0,0,8,0"/>
+    <Button x:Name="ApplyButton" Content="应用并保存" IsDefault="True" Click="Apply" Padding="20,6"/>
+   </StackPanel>
+  </Grid>
+  <TabControl>
+   <TabItem Header="画面与性能">
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+     <StackPanel Margin="16">
+      <TextBlock Text="性能预设" Style="{StaticResource Heading}"/>
+      <WrapPanel><Button Content="省流量" Tag="economy" Click="Preset" Padding="16,6" Margin="0,0,8,0"/><Button Content="均衡" Tag="balanced" Click="Preset" Padding="16,6" Margin="0,0,8,0"/><Button Content="流畅" Tag="smooth" Click="Preset" Padding="16,6"/></WrapPanel>
+      <TextBlock Text="省流量：16 位色 / 15 FPS；均衡：全彩 / 30 FPS；流畅：全彩 / 60 FPS。三个预设均优先压缩。" Style="{StaticResource Hint}"/>
+      <TextBlock Text="更新请求上限"/>
+      <DockPanel><TextBlock DockPanel.Dock="Right" Width="75" Text="{Binding ElementName=Fps, Path=Value, StringFormat={}{0:F0} FPS}" Margin="12,5,0,0"/><Slider x:Name="Fps" Minimum="5" Maximum="120" TickFrequency="5" IsSnapToTickEnabled="True" Margin="0,8"/></DockPanel>
+      <TextBlock Text="上限可调到 120；实际帧率取决于服务器、网络与显示器。高分辨率建议先选 15–30。" Style="{StaticResource Hint}"/>
+      <TextBlock Text="画面编码（重连生效）"/>
+      <ComboBox x:Name="EncodingChoice"><ComboBoxItem Content="ZRLE 压缩 · 推荐"/><ComboBoxItem Content="Raw 无压缩 · 仅用于排查"/></ComboBox>
+      <TextBlock x:Name="RawWarning" Text="Raw 流量很大。1080p 全帧 30 FPS 约需 249 MB/s；千兆局域网也可能被占满。" Foreground="#D97706" TextWrapping="Wrap" Margin="0,4,0,10"/>
+      <TextBlock Text="传输色深（重连生效）"/>
+      <ComboBox x:Name="ColorChoice"><ComboBoxItem Content="全彩 · 24 位颜色 / 32 位像素"/><ComboBoxItem Content="省流量 · 16 位 RGB565"/></ComboBox>
+      <CheckBox x:Name="CopyRect" Content="启用 CopyRect，复用远端已有画面（重连生效）"/>
+      <TextBlock Text="本地显示" Style="{StaticResource Heading}"/>
+      <ComboBox x:Name="ScaleChoice" SelectionChanged="ScaleChanged"><ComboBoxItem Content="适应窗口 · 保持比例"/><ComboBoxItem Content="原始大小 · 可滚动"/><ComboBoxItem Content="自定义缩放 · 可滚动"/></ComboBox>
+      <DockPanel x:Name="CustomScaleRow"><TextBlock DockPanel.Dock="Right" Width="75" Text="{Binding ElementName=ScaleValue, Path=Value, StringFormat={}{0:F0}%}" Margin="12,5,0,0"/><Slider x:Name="ScaleValue" Minimum="25" Maximum="200" TickFrequency="25" IsSnapToTickEnabled="True" Margin="0,8"/></DockPanel>
+      <CheckBox x:Name="Smooth" Content="平滑缩放（画质更细腻，增加绘制负担）"/>
+      <TextBlock Text="本地缩放不会降低远端传输分辨率；要减少传输像素，请在远端系统调整分辨率。" Style="{StaticResource Hint}"/>
+     </StackPanel>
+    </ScrollViewer>
+   </TabItem>
+   <TabItem Header="键鼠与剪贴板">
+    <ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="16">
+     <TextBlock Text="键盘与鼠标" Style="{StaticResource Heading}"/>
+     <CheckBox x:Name="ReadOnly" Content="仅查看，禁止发送键盘、鼠标和本地剪贴板"/>
+     <CheckBox x:Name="AltCommand" Content="将 Alt 映射为 Mac Command"/>
+     <CheckBox x:Name="SwapModifiers" Content="交换 Ctrl 与 Alt（先交换，再进行 Command 映射）"/>
+     <TextBlock Text="滚轮速度" Margin="0,14,0,0"/>
+     <DockPanel><TextBlock DockPanel.Dock="Right" Width="75" Text="{Binding ElementName=WheelValue, Path=Value, StringFormat={}{0:F0} 倍}" Margin="12,5,0,0"/><Slider x:Name="WheelValue" Minimum="1" Maximum="10" TickFrequency="1" IsSnapToTickEnabled="True" Margin="0,8"/></DockPanel>
+     <CheckBox x:Name="InvertWheel" Content="反转滚轮方向"/>
+     <TextBlock Text="剪贴板同步" Style="{StaticResource Heading}"/>
+     <ComboBox x:Name="ClipboardChoice"><ComboBoxItem Content="关闭"/><ComboBoxItem Content="仅本地 → 远端"/><ComboBoxItem Content="仅远端 → 本地"/><ComboBoxItem Content="双向同步"/></ComboBox>
+     <CheckBox x:Name="ClipboardFocus" Content="只在远端画面获得焦点时发送本地剪贴板"/>
+     <TextBlock Text="同步仅处理文本，最大 1 MB。接收远端文本会覆盖本地剪贴板；Mac 是否支持取决于屏幕共享服务。" Style="{StaticResource Hint}"/>
+     <CheckBox x:Name="Bell" Content="播放远端提示音"/>
+    </StackPanel></ScrollViewer>
+   </TabItem>
+   <TabItem Header="连接与重连">
+    <ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="16">
+     <TextBlock Text="网络连接" Style="{StaticResource Heading}"/>
+     <TextBlock Text="连接及认证超时（秒，重连生效）"/>
+     <DockPanel><TextBlock DockPanel.Dock="Right" Width="75" Text="{Binding ElementName=TimeoutValue, Path=Value, StringFormat={}{0:F0} 秒}" Margin="12,5,0,0"/><Slider x:Name="TimeoutValue" Minimum="3" Maximum="60" TickFrequency="1" IsSnapToTickEnabled="True" Margin="0,8"/></DockPanel>
+     <CheckBox x:Name="Shared" Content="请求共享会话，允许其他客户端同时连接（重连生效）"/>
+     <CheckBox x:Name="KeepAlive" Content="启用 TCP 保活，检测失效连接（重连生效）"/>
+     <TextBlock Text="断线重连" Style="{StaticResource Heading}"/>
+     <CheckBox x:Name="Reconnect" Content="会话意外断开后自动重连"/>
+     <TextBlock Text="重试间隔"/>
+     <DockPanel><TextBlock DockPanel.Dock="Right" Width="75" Text="{Binding ElementName=RetryDelay, Path=Value, StringFormat={}{0:F0} 秒}" Margin="12,5,0,0"/><Slider x:Name="RetryDelay" Minimum="1" Maximum="30" TickFrequency="1" IsSnapToTickEnabled="True" Margin="0,8"/></DockPanel>
+     <TextBlock Text="最多重试次数"/>
+     <DockPanel><TextBlock DockPanel.Dock="Right" Width="75" Text="{Binding ElementName=RetryCount, Path=Value, StringFormat={}{0:F0} 次}" Margin="12,5,0,0"/><Slider x:Name="RetryCount" Minimum="1" Maximum="20" TickFrequency="1" IsSnapToTickEnabled="True" Margin="0,8"/></DockPanel>
+     <TextBlock Text="只在曾成功建立的会话断开后重试；密码或认证错误立即停止。点击“断开”会取消重试。密码在会话期间保留于内存，保存到磁盘需要单独勾选。" Style="{StaticResource Hint}"/>
+    </StackPanel></ScrollViewer>
+   </TabItem>
+   <TabItem Header="窗口">
+    <StackPanel Margin="16">
+     <TextBlock Text="窗口与状态" Style="{StaticResource Heading}"/>
+     <CheckBox x:Name="Fullscreen" Content="连接成功后进入全屏"/>
+     <CheckBox x:Name="HideSidebar" Content="全屏时隐藏连接侧栏"/>
+     <CheckBox x:Name="Statistics" Content="显示分辨率、编码、色深、实时流量和绘制 FPS"/>
+     <CheckBox x:Name="RememberSize" Content="记住窗口大小与最大化状态"/>
+     <TextBlock Text="快捷操作" Style="{StaticResource Heading}"/>
+     <TextBlock Text="F11：切换全屏&#10;Ctrl + Alt + Shift + S：打开设置&#10;工具栏可强制刷新画面、发送 Ctrl+Alt+Del、截图保存 PNG。" TextWrapping="Wrap" Margin="0,8"/>
+     <TextBlock Text="设置随应用自动保存；点击侧栏“保存连接”可将当前设置保存到对应服务器。" Style="{StaticResource Hint}"/>
+    </StackPanel>
+   </TabItem>
+  </TabControl>
+ </DockPanel>
+</Window>

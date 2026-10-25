@@ -7,7 +7,7 @@
     <Nullable>enable</Nullable>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AssemblyName>OpenVNCViewer</AssemblyName>
-    <Version>1.0.0</Version>
+    <Version>1.1.0</Version>
   </PropertyGroup>
   <ItemGroup><PackageReference Include="SharpZipLib" Version="1.4.2" /></ItemGroup>
 </Project>
