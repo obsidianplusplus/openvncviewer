@@ -1,6 +1,7 @@
-name: CI
+name: Build Windows EXE
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
     tags: ["v*"]
@@ -118,10 +119,22 @@ jobs:
           subprocess.run(["dist/OpenVNCViewer-${{ matrix.arch }}.exe", "--version"],
                          check=True, timeout=30)
 
+      - name: Generate SHA256 checksum
+        shell: python
+        run: |
+          import hashlib
+          from pathlib import Path
+          binary = Path("dist/OpenVNCViewer-${{ matrix.arch }}.exe")
+          digest = hashlib.sha256(binary.read_bytes()).hexdigest()
+          binary.with_name("SHA256SUMS.txt").write_text(
+              f"{digest}  {binary.name}\n", encoding="utf-8")
+
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: OpenVNCViewer-windows-${{ matrix.arch }}
-          path: dist/OpenVNCViewer-${{ matrix.arch }}.exe
+          path: |
+            dist/OpenVNCViewer-${{ matrix.arch }}.exe
+            dist/SHA256SUMS.txt
           if-no-files-found: error
 
   release:
