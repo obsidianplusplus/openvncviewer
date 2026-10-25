@@ -81,7 +81,7 @@ public readonly record struct DesktopLayout(double Width, double Height, double 
         if (Width <= 0 || Height <= 0 || remoteWidth <= 0 || remoteHeight <= 0) return null;
         x -= Left; y -= Top;
         if (!clamp && (x < 0 || y < 0 || x >= Width || y >= Height)) return null;
-        return ((int)Math.Clamp(x / Width * remoteWidth, 0, remoteWidth - 1),
-            (int)Math.Clamp(y / Height * remoteHeight, 0, remoteHeight - 1));
+        return ((int)Math.Clamp(Math.Round(x / Width * remoteWidth), 0, remoteWidth - 1),
+            (int)Math.Clamp(Math.Round(y / Height * remoteHeight), 0, remoteHeight - 1));
     }
 }

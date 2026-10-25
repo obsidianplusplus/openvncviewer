@@ -37,11 +37,11 @@
       <ListBox.ItemTemplate><DataTemplate><StackPanel Margin="4,5"><TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/><TextBlock Text="{Binding Address}" FontSize="12" Opacity="0.65" TextTrimming="CharacterEllipsis"/></StackPanel></DataTemplate></ListBox.ItemTemplate>
      </ListBox>
      <TextBlock Text="连接名称" Style="{StaticResource FieldLabel}" Margin="0,14,0,0"/><TextBox x:Name="ProfileName" ToolTip="给这台服务器起个名字"/>
-     <TextBlock Text="服务器地址" Style="{StaticResource FieldLabel}"/><TextBox x:Name="Host" ToolTip="IP 地址或主机名"/>
-     <TextBlock Text="端口" Style="{StaticResource FieldLabel}"/><TextBox x:Name="Port" Text="5900"/>
-     <TextBlock Text="账号" Style="{StaticResource FieldLabel}"/><TextBox x:Name="User"/>
+     <TextBlock Text="服务器地址" Style="{StaticResource FieldLabel}"/><TextBox x:Name="Host" TextChanged="EndpointEdited" ToolTip="IP 地址或主机名"/>
+     <TextBlock Text="端口" Style="{StaticResource FieldLabel}"/><TextBox x:Name="Port" TextChanged="EndpointEdited" Text="5900"/>
+     <TextBlock Text="账号" Style="{StaticResource FieldLabel}"/><TextBox x:Name="User" TextChanged="EndpointEdited"/>
      <TextBlock Text="Mac 填系统账号；普通 VNC 留空。" Opacity="0.65" TextWrapping="Wrap" FontSize="12" Margin="0,0,0,8"/>
-     <TextBlock Text="密码" Style="{StaticResource FieldLabel}"/><PasswordBox x:Name="Password" Margin="0,4,0,10"/>
+     <TextBlock Text="密码" Style="{StaticResource FieldLabel}"/><PasswordBox x:Name="Password" PasswordChanged="PasswordEdited" Margin="0,4,0,10"/>
      <CheckBox x:Name="SavePassword" Content="使用 Windows 加密保存密码" Unchecked="ForgetSavedPassword" Margin="0,2,0,12"/>
      <WrapPanel><Button Content="保存连接" Click="SaveProfile"/><Button Content="删除" Click="DeleteProfile" Margin="0"/></WrapPanel>
      <TextBlock x:Name="ProfileSummary" Opacity="0.7" TextWrapping="Wrap" Margin="0,14,0,0"/>

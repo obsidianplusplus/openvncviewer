@@ -18,7 +18,7 @@ public partial class MainWindow : Window
     ViewerOptions options;
     ViewerOptions liveOptions;
     string? editingProfileId;
-    bool loading, closing, fullscreen, sessionRunning;
+    bool loading, closing, fullscreen, sessionRunning, loadedCredential;
     WindowState windowBeforeFullscreen;
     RfbClient? client;
     CancellationTokenSource? lifetime;
@@ -82,6 +82,7 @@ public partial class MainWindow : Window
         ProfileName.Text = profile.Name; Host.Text = profile.Host; Port.Text = profile.Port.ToString();
         User.Text = profile.Username; Password.Password = PasswordProtector.Unprotect(profile.PasswordToken);
         SavePassword.IsChecked = profile.PasswordToken.Length > 0;
+        loadedCredential = Password.Password.Length > 0;
         options = profile.Options.Normalize(); state.SelectedProfileId = profile.Id;
         loading = false;
         if (!sessionRunning) { liveOptions = options; ApplyVisualOptions(); }
@@ -95,7 +96,7 @@ public partial class MainWindow : Window
     { if (ProfileList.SelectedItem is ConnectionProfile) Connect(s, e); }
     void NewProfile(object s, RoutedEventArgs e)
     {
-        loading = true; ProfileList.SelectedItem = null; editingProfileId = null; state.SelectedProfileId = "";
+        loadedCredential = false; loading = true; ProfileList.SelectedItem = null; editingProfileId = null; state.SelectedProfileId = "";
         ProfileName.Clear(); Host.Clear(); Port.Text = "5900"; User.Clear(); Password.Clear(); SavePassword.IsChecked = false;
         options = state.Defaults.Normalize(); loading = false;
         if (!sessionRunning) { liveOptions = options; ApplyVisualOptions(); }
@@ -106,12 +107,22 @@ public partial class MainWindow : Window
         if (!string.IsNullOrWhiteSpace(Host.Text) && int.TryParse(Port.Text, out port) && port is >= 1 and <= 65535) return true;
         port = 5900; Notice.Text = "请输入服务器地址，以及 1–65535 之间的端口。"; return false;
     }
+    ConnectionProfile? MatchingSavedProfile() => state.Profiles.FirstOrDefault(p => p.Id == editingProfileId &&
+        string.Equals(p.Host, Host.Text.Trim(), StringComparison.OrdinalIgnoreCase) && p.Port.ToString() == Port.Text.Trim() && p.Username == User.Text);
+    void EndpointEdited(object s, TextChangedEventArgs e)
+    {
+        if (loading || !loadedCredential || Password == null) return;
+        loadedCredential = false; Password.Clear();
+    }
+    void PasswordEdited(object s, RoutedEventArgs e) { if (!loading) loadedCredential = false; }
     void SaveProfile(object s, RoutedEventArgs e)
     {
         if (!TryEndpoint(out int port)) return;
         if (editingProfileId == null && state.Profiles.Count >= 50) { Notice.Text = "最多保存 50 个连接，请先删除不用的连接。"; return; }
         string token;
-        try { token = SavePassword.IsChecked == true ? PasswordProtector.Protect(Password.Password) : ""; }
+        try { token = SavePassword.IsChecked == true
+            ? Password.Password.Length > 0 ? PasswordProtector.Protect(Password.Password) : MatchingSavedProfile()?.PasswordToken ?? ""
+            : ""; }
         catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or PlatformNotSupportedException)
         { Notice.Text = "无法加密密码，连接未保存：" + ex.Message; return; }
         var profile = new ConnectionProfile
@@ -198,7 +209,7 @@ public partial class MainWindow : Window
         if (!TryEndpoint(out int port)) return;
         string host = Host.Text.Trim(), user = User.Text, password = Password.Password;
         if (password.Length == 0 && editingProfileId != null)
-            password = PasswordProtector.Unprotect(state.Profiles.FirstOrDefault(p => p.Id == editingProfileId)?.PasswordToken ?? "");
+            password = PasswordProtector.Unprotect(MatchingSavedProfile()?.PasswordToken ?? "");
         Stop(); long currentEpoch = epoch; var cts = new CancellationTokenSource(); lifetime = cts;
         liveOptions = options; sessionRunning = true; ConnectButton.IsEnabled = false; Notice.Text = "";
         ApplyVisualOptions(); state.Defaults = options; state.SelectedProfileId = editingProfileId ?? ""; Persist();
